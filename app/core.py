@@ -5,6 +5,9 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit, urlunsplit
+from dotenv import load_dotenv
+
+ENV_ROOT = Path(__file__).resolve().parent.parent
 
 LANGUAGES = {"auto", "pt", "en", "es", "fr", "de", "it"}
 PROVIDERS = {
@@ -34,6 +37,9 @@ class Settings:
 
     @classmethod
     def load(cls):
+        # Runtime values win; local files are server-only fallbacks, not browser assets.
+        load_dotenv(ENV_ROOT / '.env.local', override=False, interpolate=False, encoding='utf-8-sig')
+        load_dotenv(ENV_ROOT / '.env', override=False, interpolate=False, encoding='utf-8-sig')
         provider = os.getenv("FBR_PROVIDER", "groq").lower()
         if provider not in PROVIDERS:
             raise ValueError("FBR_PROVIDER deve ser groq ou openai.")

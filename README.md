@@ -99,7 +99,7 @@ export FBR_DATA_DIR='./data'
 uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 ```
 
-O programa lê variáveis do ambiente; não carrega `.env` automaticamente. No Easypanel use o editor Environment; com Docker use `--env-file`. Para uma instância deliberadamente pública é possível definir `FBR_ALLOW_PUBLIC=1`, mas isso dispensa a senha e permite que terceiros gerem despesas na sua chave. O padrão exige senha.
+O programa prioriza as variáveis do processo e usa `.env.local` e depois `.env` da raiz do projeto como valores de fallback. Esses arquivos não são enviados ao GitHub nem incluídos na imagem Docker. No Easypanel use o editor Environment; com Docker use `--env-file`. Para uma instância deliberadamente pública é possível definir `FBR_ALLOW_PUBLIC=1`, mas isso dispensa a senha e permite que terceiros gerem despesas na sua chave. O padrão exige senha.
 
 ## Verificação desta entrega
 
@@ -110,3 +110,4 @@ O programa lê variáveis do ambiente; não carrega `.env` automaticamente. No E
 - Interface servida com HTTP 200 e módulos JavaScript verificados.
 
 **Ainda não verificado:** transcrição real em Groq/OpenAI (não foi fornecida uma chave), extração real em Instagram/TikTok/Facebook/X, comportamento a partir do IP da sua VPS e execução do container (o serviço Docker local não estava ativo). Os testes simulados não comprovam qualidade de reconhecimento de fala. Esses pontos devem ser verificados após a instalação, com links autorizados de cada plataforma e chave configurada.
+
