@@ -286,7 +286,8 @@ def runtime_check(request: Request):
             versions[package] = version(package)
         except PackageNotFoundError:
             versions[package] = 'not_installed'
-    return {'python': sys.version.split()[0], 'versions': versions, 'node_available': bool(shutil.which('node')), 'ffmpeg_available': bool(shutil.which('ffmpeg')), 'youtube_engine': os.getenv('FBR_YOUTUBE_ENGINE', 'auto'), 'diagnostic_version': 1}
+    from .sessions import browser_status
+    return {'python': sys.version.split()[0], 'versions': versions, 'node_available': bool(shutil.which('node')), 'ffmpeg_available': bool(shutil.which('ffmpeg')), 'youtube_engine': os.getenv('FBR_YOUTUBE_ENGINE', 'auto'), 'diagnostic_version': 2, 'browser': browser_status()}
 
 @app.post('/api/jobs/upload', status_code=202)
 async def upload_job(request: Request, language: str = 'auto'):

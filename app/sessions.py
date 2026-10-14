@@ -19,6 +19,25 @@ PLATFORMS = {
 def platform_id(label):
     return next((key for key, (name, _) in PLATFORMS.items() if name == label), None)
 
+def browser_status():
+    profile = os.getenv('FBR_BROWSER_PROFILE', '').strip()
+    result = {'configured': bool(profile), 'directory_present': False, 'readable': False, 'cookie_database_found': False, 'read_only_mount': None}
+    if not profile or not Path(profile).is_absolute():
+        return result
+    root = Path(profile)
+    result['directory_present'] = root.is_dir()
+    if not result['directory_present']:
+        return result
+    result['readable'] = os.access(root, os.R_OK | os.X_OK)
+    try:
+        if hasattr(os, 'statvfs'):
+            result['read_only_mount'] = bool(os.statvfs(root).f_flag & os.ST_RDONLY)
+        # One cookie DB is enough to verify the mount; no cookie content is read.
+        result['cookie_database_found'] = next(root.rglob('cookies.sqlite'), None) is not None
+    except OSError:
+        result['readable'] = False
+    return result
+
 def filtered_cookies(content, platform):
     if platform not in PLATFORMS:
         raise ValueError('Plataforma inválida.')

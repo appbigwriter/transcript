@@ -1,0 +1,26 @@
+services:
+  firefox:
+    image: lscr.io/linuxserver/firefox@sha256:1d8fc33b44f2d1c819c59af62d28724e3b32025b0f4dd2d525c0624b43947ada
+    environment:
+      PUID: "10001"
+      PGID: "10001"
+      UMASK: "077"
+      TZ: America/Sao_Paulo
+      CUSTOM_USER: ${FBR_BROWSER_USER:-fbr-browser}
+      PASSWORD: ${FBR_BROWSER_PASSWORD:?Defina FBR_BROWSER_PASSWORD no Environment deste servico}
+      FIREFOX_CLI: https://www.youtube.com/
+    volumes:
+      - type: bind
+        source: /srv/fbr-transcript/firefox
+        target: /config
+    shm_size: 1gb
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+# Sem ports, container_name, Docker socket ou modo privilegiado.
+# A interface HTTP 3000 so deve ser roteada por um gateway com controle de acesso.
+# No servico App "transcript", monte o MESMO diretorio do host:
+# /srv/fbr-transcript/firefox -> /browser-profile (somente leitura).

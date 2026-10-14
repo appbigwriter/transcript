@@ -12,13 +12,22 @@ from fastapi.testclient import TestClient
 from app.core import Settings
 from app.main import app
 from app.pipeline import downloader_arguments
-from app.sessions import SessionStore, filtered_cookies
+from app.sessions import SessionStore, filtered_cookies, browser_status
 
 def cookies(domain='.youtube.com', value='fake-cookie-for-test', expiry=None):
     expiry = int(time.time() + 86400) if expiry is None else expiry
     return f'# Netscape HTTP Cookie File\n{domain}\tTRUE\t/\tTRUE\t{expiry}\tSID\t{value}\n'
 
 class SessionTests(unittest.TestCase):
+    def test_browser_mount_status_without_cookie_contents(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {'FBR_BROWSER_PROFILE':directory}):
+            status=browser_status()
+            self.assertTrue(status['directory_present'])
+            self.assertFalse(status['cookie_database_found'])
+            (Path(directory)/'cookies.sqlite').touch()
+            status=browser_status()
+            self.assertTrue(status['cookie_database_found'])
+            self.assertNotIn(directory,str(status))
     def test_real_firefox_profile_sync(self):
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {'FBR_SESSION_SECRET':'test-encryption-secret'}):
             root=Path(directory)
@@ -91,7 +100,7 @@ class SessionEndpointTests(unittest.TestCase):
             client.auth=('fbr','private-test-password')
             runtime=client.get('/api/diagnostics/runtime')
             self.assertEqual(runtime.status_code,200)
-            self.assertEqual(runtime.json()['diagnostic_version'],1)
+            self.assertEqual(runtime.json()['diagnostic_version'],2)
             result=client.post('/api/diagnostics/extraction',json={'url':'https://youtu.be/ZTSI3DDP_4A'})
             self.assertEqual(result.status_code,202)
             self.assertEqual(result.json()['kind'],'extraction_check')
