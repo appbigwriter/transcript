@@ -1,6 +1,3 @@
-.env
-.env.*
-!.env.example
 .venv/
 venv/
 data/
@@ -12,3 +9,6 @@ cookies.txt
 session.txt
 *.zip
 .DS_Store
+.env
+.env.local
+
