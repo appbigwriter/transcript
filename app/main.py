@@ -90,7 +90,7 @@ def worker_loop(store, settings, stop):
             else:
                 result = {"error": "A tarefa foi interrompida ou excedeu o tempo máximo. Partes já enviadas à API podem ter sido cobradas."}
             if result.get("error"):
-                store.update(job["id"], status="failed", stage="Não concluído", error=result["error"])
+                store.update(job["id"], status="failed", stage="Não concluído", error=result["error"], error_code=result.get('error_code', 'processing_error'))
             else:
                 store.update(job["id"], status="done", stage="Transcrição pronta", progress=100, result=result["result"])
 
