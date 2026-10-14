@@ -6,6 +6,9 @@ __pycache__/
 *.sqlite3
 *.sqlite3-*
 cookies.txt
+cookies*.txt
+*.enc
+uploads/
 session.txt
 *.zip
 .DS_Store

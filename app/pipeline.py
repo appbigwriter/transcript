@@ -9,6 +9,7 @@ from pathlib import Path
 import httpx
 
 from .core import PROVIDERS, Settings, normalize_segments, publication_url
+from .sessions import SessionStore, platform_id, filtered_cookies
 
 CHUNK_SECONDS = 600
 
@@ -33,7 +34,7 @@ def command(arguments, timeout=300):
         raise UserError("Não foi possível acessar o áudio desta publicação. Verifique o link, a disponibilidade e as permissões. Bloqueios da plataforma ou da rede da VPS também podem impedir a extração.")
     return result.stdout
 
-def downloader_arguments(settings):
+def downloader_arguments(settings, platform=None):
     args = [
         sys.executable, "-m", "yt_dlp",
         "--ignore-config",
@@ -47,8 +48,17 @@ def downloader_arguments(settings):
         "--fragment-retries", "1",
         "--js-runtimes", "node",
         "--use-extractors", "youtube.*,instagram.*,tiktok.*,facebook.*,twitter.*",
-        "--extractor-args", "youtube:player_client=android,ios,web",
     ]
+    # Let yt-dlp pick current supported clients; forced mobile clients may reject cookies.
+    if platform:
+        sessions = SessionStore(settings)
+        if sessions.enabled and sessions.has_override(platform):
+            try:
+                if sessions.materialize(platform, Path('session.txt')):
+                    args += ['--cookies', str(Path('session.txt').resolve())]
+            except ValueError as error:
+                raise UserError(str(error)) from None
+            return args
     if settings.cookies_file:
         source = Path(settings.cookies_file)
         if not source.is_file():
@@ -56,7 +66,16 @@ def downloader_arguments(settings):
         # yt-dlp writes updated cookies; work with a disposable copy of the mounted session.
         import shutil
         destination = Path("session.txt")
-        shutil.copyfile(source, destination)
+        if platform:
+            try:
+                text, _ = filtered_cookies(source.read_text(encoding='utf-8-sig'), platform)
+            except ValueError:
+                # A legacy file for a different platform is not applied to this request.
+                return args
+            destination.write_text(text, encoding='utf-8')
+            os.chmod(destination, 0o600)
+        else:
+            shutil.copyfile(source, destination)
         args += ["--cookies", str(destination.resolve())]
     return args
 
@@ -126,11 +145,26 @@ def transcribe_chunks(files, duration, settings, language, client):
     return {"text": combined, "segments": segments, "language": languages[0] if languages else language, "duration": round(duration, 2), "provider": settings.provider, "model": settings.model}
 
 def process(job, settings, directory):
+    if job.get('kind') == 'session_check':
+        url, platform = publication_url(job['url'])
+        arguments = downloader_arguments(settings, platform_id(platform))
+        progress('Testando acesso à publicação', 10)
+        metadata = json.loads(command(arguments + ['--dump-single-json', '--skip-download', '--', url], timeout=90))
+        return {'kind': 'session_check', 'accessible': True, 'platform': platform, 'title': str(metadata.get('title') or 'Publicação')[:300], 'notice': 'Link de teste acessível. Isso não comprova login nem garante download de outros vídeos.'}
     if not settings.key:
         raise UserError("Configure a chave da API no servidor antes de transcrever.")
+    if job.get('kind') == 'upload':
+        progress('Preparando arquivo enviado', 30)
+        source = directory / 'upload.media'
+        if not source.is_file():
+            raise UserError('O arquivo enviado não está mais disponível. Envie-o novamente.')
+        chunks, duration = prepare_chunks(source, settings, directory)
+        with httpx.Client(timeout=httpx.Timeout(240, connect=20), follow_redirects=False) as client:
+            result = transcribe_chunks(chunks, duration, settings, job['language'], client)
+        return dict(result, title=job.get('upload_name') or 'Arquivo enviado', platform='Arquivo enviado')
     url, platform = publication_url(job["url"])
     progress("Consultando publicação", 5)
-    arguments = downloader_arguments(settings)
+    arguments = downloader_arguments(settings, platform_id(platform))
     metadata = json.loads(command(arguments + ["--dump-single-json", "--skip-download", "--", url]))
     entries = metadata.get("entries")
     if entries:

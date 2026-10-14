@@ -52,12 +52,16 @@ class Settings:
             if not minimum <= value <= maximum:
                 raise ValueError(f"{name} fora do intervalo permitido.")
             return value
+        cookies = os.getenv('FBR_COOKIES_FILE', '').strip()
+        if cookies:
+            cookie_path = Path(cookies).expanduser()
+            cookies = str((cookie_path if cookie_path.is_absolute() else ENV_ROOT / cookie_path).resolve())
         return cls(provider, model, os.getenv(info["key"], "").strip(), Path(os.getenv("FBR_DATA_DIR", "data")),
                    number("FBR_MAX_DURATION_SECONDS", 3600, 1, 14400), number("FBR_MAX_DOWNLOAD_MB", 150, 1, 1000) * 1024 * 1024,
                    number("FBR_MAX_QUEUE", 10, 1, 100), number("FBR_JOB_TIMEOUT_SECONDS", 1800, 10, 7200),
                    number("FBR_RETENTION_HOURS", 24, 1, 168) * 3600,
                    os.getenv("FBR_USERNAME", "fbr"), os.getenv("FBR_PASSWORD", ""), os.getenv("FBR_ALLOW_PUBLIC") == "1",
-                   os.getenv("FBR_COOKIES_FILE", ""))
+                   cookies)
 
 def publication_url(raw):
     """Only supported social-publication paths; never arbitrary network/file URLs."""

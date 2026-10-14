@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .core import LANGUAGES, PROVIDERS, Settings, publication_url, subtitles
 from .store import JobStore
+from .sessions import SessionStore, PLATFORMS, platform_id
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "app" / "static"
@@ -51,6 +52,10 @@ def worker_loop(store, settings, stop):
         store.update(job["id"], status="running", stage="Iniciando", progress=1)
         with tempfile.TemporaryDirectory(prefix="job-", dir=work) as temporary:
             directory = Path(temporary)
+            if job.get('kind') == 'upload':
+                source = settings.data_dir / 'uploads' / (job['upload_id'] + '.media')
+                if source.is_file():
+                    source.replace(directory / 'upload.media')
             (directory / "job.json").write_text(json.dumps(job), encoding="utf-8")
             environment = os.environ.copy()
             environment["PYTHONPATH"] = str(ROOT) + os.pathsep + environment.get("PYTHONPATH", "")
@@ -102,12 +107,19 @@ async def lifespan(app):
     settings = Settings.load()
     store = JobStore(settings.data_dir)
     store.initialize()
+    uploads = settings.data_dir / 'uploads'
+    if uploads.exists():
+        keep = store.queued_uploads()
+        for file in uploads.glob('*.media'):
+            if re.fullmatch(r'[a-f0-9]{32}', file.stem) and file.stem not in keep:
+                file.unlink(missing_ok=True)
     work = settings.data_dir / "work"
     if work.exists():
         for child in work.glob("job-*"):
             if child.is_dir() and not child.is_symlink():
                 shutil.rmtree(child)
     app.state.settings, app.state.store = settings, store
+    app.state.sessions = SessionStore(settings)
     app.state.submissions = deque()
     app.state.submission_lock = threading.Lock()
     stop = threading.Event()
@@ -136,7 +148,7 @@ async def protection(request: Request, call_next):
         if not valid:
             return Response("Autenticação necessária.", status_code=401, headers={"WWW-Authenticate": 'Basic realm="FBR-Transcript", charset="UTF-8"'})
     # Same-origin mutating requests; no CORS surface for third-party pages.
-    if request.method == "POST":
+    if request.method in {"POST", "DELETE", "PUT"}:
         if request.headers.get("sec-fetch-site") == "cross-site":
             return JSONResponse({"detail": "Origem não permitida."}, status_code=403)
         origin = request.headers.get("origin")
@@ -145,7 +157,8 @@ async def protection(request: Request, call_next):
             if urlsplit(origin).netloc != request.headers.get("host"):
                 return JSONResponse({"detail": "Origem não permitida."}, status_code=403)
         try:
-            if int(request.headers.get("content-length", "0")) > 8192:
+            limit = settings.max_download if request.url.path == '/api/jobs/upload' else 1100000 if request.url.path.startswith('/api/sessions/') else 8192
+            if int(request.headers.get("content-length", "0")) > limit:
                 return JSONResponse({"detail": "Requisição muito grande."}, status_code=413)
         except ValueError:
             return JSONResponse({"detail": "Requisição inválida."}, status_code=400)
@@ -164,7 +177,49 @@ def health():
 @app.get("/api/config")
 def configuration(request: Request):
     settings = request.app.state.settings
-    return {"provider": settings.provider, "model": settings.model, "ready": bool(settings.key), "timestamps": settings.timestamps, "max_minutes": settings.max_duration // 60, "retention_hours": settings.retention // 3600}
+    from urllib.parse import urlsplit
+    browser_url = os.getenv('FBR_BROWSER_URL', '').strip() if not settings.allow_public else ''
+    parsed = urlsplit(browser_url)
+    if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password:
+        browser_url = ''
+    return {"provider": settings.provider, "model": settings.model, "ready": bool(settings.key), "timestamps": settings.timestamps, "max_minutes": settings.max_duration // 60, "retention_hours": settings.retention // 3600, 'max_upload_mb': settings.max_download // (1024 * 1024), 'session_management': not settings.allow_public, 'browser_sync': bool(os.getenv('FBR_BROWSER_PROFILE')) and not settings.allow_public, 'browser_url': browser_url}
+
+def private_sessions(request):
+    if request.app.state.settings.allow_public:
+        raise HTTPException(403, 'O gerenciamento de sessões exige que o aplicativo esteja protegido por senha.')
+    return request.app.state.sessions
+
+@app.get('/api/sessions')
+def list_sessions(request: Request):
+    sessions = private_sessions(request)
+    return {'sessions': [sessions.describe(platform) for platform in PLATFORMS]}
+
+class SessionImport(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    content: str = Field(min_length=1, max_length=1048576)
+
+@app.put('/api/sessions/{platform}')
+def save_session(platform: str, body: SessionImport, request: Request):
+    sessions = private_sessions(request)
+    try:
+        return sessions.save(platform, body.content)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from None
+
+@app.delete('/api/sessions/{platform}')
+def remove_session(platform: str, request: Request):
+    try:
+        private_sessions(request).remove(platform)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from None
+    return {'removed': True, 'notice': 'Sessão removida deste aplicativo. Para revogá-la na plataforma, encerre a sessão nas configurações da conta.'}
+
+@app.post('/api/sessions/{platform}/sync')
+def sync_browser_session(platform: str, request: Request):
+    try:
+        return private_sessions(request).sync_firefox(platform)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from None
 
 class TranscriptionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -180,6 +235,10 @@ def create_job(body: TranscriptionRequest, request: Request):
         url, platform = publication_url(body.url)
     except ValueError as error:
         raise HTTPException(400, str(error)) from None
+    return enqueue(request, {"url": url, "platform": platform, "language": body.language})
+
+def enqueue(request, data):
+    settings, store = request.app.state.settings, request.app.state.store
     with request.app.state.submission_lock:
         now = time.monotonic()
         submissions = request.app.state.submissions
@@ -189,11 +248,59 @@ def create_job(body: TranscriptionRequest, request: Request):
         if len(submissions) >= 30:
             raise HTTPException(429, "Limite de 30 novas tarefas por hora atingido. Aguarde para continuar.")
         try:
-            result = store.create({"url": url, "platform": platform, "language": body.language}, settings.max_queue)
+            result = store.create(data, settings.max_queue)
         except ValueError as error:
             raise HTTPException(429, str(error)) from None
         submissions.append(now)
     return result
+
+@app.post('/api/sessions/{platform}/check', status_code=202)
+def check_session(platform: str, body: TranscriptionRequest, request: Request):
+    sessions = private_sessions(request)
+    if platform not in PLATFORMS or not sessions.describe(platform)['configured']:
+        raise HTTPException(400, 'Importe os cookies desta plataforma primeiro.')
+    try:
+        url, label = publication_url(body.url)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from None
+    if platform_id(label) != platform:
+        raise HTTPException(400, 'O link precisa pertencer à plataforma selecionada.')
+    return enqueue(request, {'kind': 'session_check', 'url': url, 'platform': label, 'language': 'auto'})
+
+@app.post('/api/jobs/upload', status_code=202)
+async def upload_job(request: Request, language: str = 'auto'):
+    from urllib.parse import unquote
+    settings = request.app.state.settings
+    if not settings.key:
+        raise HTTPException(503, 'Configure a chave da API no servidor antes de transcrever.')
+    if language not in LANGUAGES:
+        raise HTTPException(400, 'Idioma inválido.')
+    name = unquote(request.headers.get('x-file-name', 'arquivo'))
+    name = name.replace('\\', '/').split('/')[-1][:200]
+    if Path(name).suffix.lower() not in {'.mp3', '.mp4', '.m4a', '.wav', '.webm', '.mov', '.mkv', '.ogg', '.flac', '.aac'}:
+        raise HTTPException(400, 'Formato de áudio ou vídeo não aceito.')
+    identifier = secrets.token_hex(16)
+    directory = settings.data_dir / 'uploads'
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path = directory / (identifier + '.media')
+    accepted = False
+    try:
+        total = 0
+        with path.open('xb') as stream:
+            os.chmod(path, 0o600)
+            async for chunk in request.stream():
+                total += len(chunk)
+                if total > settings.max_download:
+                    raise HTTPException(413, 'O arquivo excede o limite de tamanho.')
+                stream.write(chunk)
+        if total == 0:
+            raise HTTPException(400, 'O arquivo está vazio.')
+        result = enqueue(request, {'kind': 'upload', 'url': None, 'platform': 'Arquivo enviado', 'language': language, 'upload_id': identifier, 'upload_name': name})
+        accepted = True
+        return result
+    finally:
+        if not accepted:
+            path.unlink(missing_ok=True)
 
 def job_or_404(request, identifier):
     if not re.fullmatch(r"[a-f0-9]{32}", identifier):

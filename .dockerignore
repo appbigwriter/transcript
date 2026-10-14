@@ -6,3 +6,7 @@ __pycache__
 *.pyc
 tests
 *.zip
+**/cookies*.txt
+**/session.txt
+**/*.enc
+transcript-dev-doc.md

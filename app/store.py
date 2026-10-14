@@ -63,3 +63,8 @@ class JobStore:
     def cleanup(self, retention):
         with self.connect() as connection:
             connection.execute("DELETE FROM jobs WHERE status IN ('done','failed') AND updated < ?", (time.time() - retention,))
+
+    def queued_uploads(self):
+        with self.connect() as connection:
+            rows = connection.execute("SELECT payload FROM jobs WHERE status='queued'").fetchall()
+        return {data['upload_id'] for row in rows if (data := json.loads(row[0])).get('kind') == 'upload'}

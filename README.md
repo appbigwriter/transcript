@@ -1,5 +1,13 @@
 # FBR-Transcript
 
+## Contas conectadas e envio de arquivos
+
+A interface inclui sessões separadas por plataforma: importar/substituir cookies Netscape, remover e testar acesso a um link. Os cookies ficam criptografados em `/data/sessions` e não são retornados ao navegador. O gerenciamento exige senha e fica indisponível no modo público. Para login em um Firefox remoto na VPS e sincronização da sessão, veja o [guia do navegador remoto](docs/navegador-remoto.md). Esse serviço adicional ainda precisa ser instalado no Easypanel; a sincronização no aplicativo já está implementada. Isso não é OAuth oficial e não garante eliminar bloqueios das plataformas.
+
+Também é possível selecionar **Enviar arquivo** para transcrever áudio/vídeo sem depender da extração por link. O arquivo fica na fila, respeita os limites de tamanho/duração e é removido após a tarefa.
+
+O arquivo `app/cookies.txt` foi retirado da versão atual do Git e do contexto de build. Se os commits anteriores continham uma sessão real, revogue-a na plataforma e importe uma nova; a exclusão atual não apaga o histórico antigo.
+
 Aplicativo para transcrever a fala de vídeos por link, preparado para instalação na VPS com Easypanel. Interface em português, fila de processamento, resultado copiável e downloads TXT/SRT/VTT. O áudio é extraído com yt-dlp/FFmpeg e enviado à API configurada no servidor.
 
 ## Instalar no Easypanel
