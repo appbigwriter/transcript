@@ -34,7 +34,21 @@ def command(arguments, timeout=300):
     return result.stdout
 
 def downloader_arguments(settings):
-    args = [sys.executable, "-m", "yt_dlp", "--ignore-config", "--no-plugin-dirs", "--quiet", "--no-warnings", "--no-playlist", "--playlist-items", "1", "--socket-timeout", "20", "--retries", "1", "--fragment-retries", "1", "--js-runtimes", "node", "--use-extractors", "youtube.*,instagram.*,tiktok.*,facebook.*,twitter.*"]
+    args = [
+        sys.executable, "-m", "yt_dlp",
+        "--ignore-config",
+        "--no-plugin-dirs",
+        "--quiet",
+        "--no-warnings",
+        "--no-playlist",
+        "--playlist-items", "1",
+        "--socket-timeout", "20",
+        "--retries", "1",
+        "--fragment-retries", "1",
+        "--js-runtimes", "node",
+        "--use-extractors", "youtube.*,instagram.*,tiktok.*,facebook.*,twitter.*",
+        "--extractor-args", "youtube:player_client=android,ios,web",
+    ]
     if settings.cookies_file:
         source = Path(settings.cookies_file)
         if not source.is_file():
