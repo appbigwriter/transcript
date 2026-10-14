@@ -204,9 +204,13 @@ def extract_source(url, platform, settings, directory):
     try:
         return download_audio(url, directory, settings)
     except YouTubeDownloadError as error:
-        raise UserError(str(error), 'youtube_alternative_failed') from None
+        raise UserError(str(error), error.code) from None
 
 def process(job, settings, directory):
+    if job.get('kind') == 'extraction_check':
+        url, platform = publication_url(job['url'])
+        source, metadata = extract_source(url, platform, settings, directory)
+        return {'kind': 'extraction_check', 'title': str(metadata.get('title') or 'Publicação')[:300], 'platform': platform, 'extractor': metadata.get('extractor', 'yt-dlp'), 'duration': duration_of(source), 'bytes': source.stat().st_size, 'notice': 'Áudio baixado e validado no servidor. Nenhuma API de transcrição foi chamada.'}
     if job.get('kind') == 'session_check':
         url, platform = publication_url(job['url'])
         arguments = downloader_arguments(settings, platform_id(platform))

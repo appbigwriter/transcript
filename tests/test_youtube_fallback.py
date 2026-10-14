@@ -4,8 +4,21 @@ from pathlib import Path
 from unittest.mock import patch
 from app.core import Settings
 from app.pipeline import UserError, extract_source
+from app.youtube import diagnose_error
+from urllib.error import HTTPError
 
 class FallbackTests(unittest.TestCase):
+    def test_http_diagnostic_is_precise_and_redacted(self):
+        error=diagnose_error(HTTPError('https://example.com/?token=secret',403,'secret-details',None,None),'download')
+        self.assertEqual(error.code,'youtube_http_403_download')
+        self.assertNotIn('secret',str(error))
+        self.assertIn('HTTP 403',str(error))
+
+    def test_runtime_diagnostic_does_not_expose_paths(self):
+        error=diagnose_error(PermissionError('/private/secret-path'),'streams')
+        self.assertEqual(error.code,'youtube_runtime_error')
+        self.assertNotIn('secret-path',str(error))
+
     def setUp(self):
         self.settings=Settings.load()
 

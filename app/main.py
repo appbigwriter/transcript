@@ -267,6 +267,27 @@ def check_session(platform: str, body: TranscriptionRequest, request: Request):
         raise HTTPException(400, 'O link precisa pertencer à plataforma selecionada.')
     return enqueue(request, {'kind': 'session_check', 'url': url, 'platform': label, 'language': 'auto'})
 
+@app.post('/api/diagnostics/extraction', status_code=202)
+def extraction_check(body: TranscriptionRequest, request: Request):
+    private_sessions(request)
+    try:
+        url, platform = publication_url(body.url)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from None
+    return enqueue(request, {'kind': 'extraction_check', 'url': url, 'platform': platform, 'language': 'auto'})
+
+@app.get('/api/diagnostics/runtime')
+def runtime_check(request: Request):
+    private_sessions(request)
+    from importlib.metadata import version, PackageNotFoundError
+    versions = {}
+    for package in ('yt-dlp', 'pytubefix'):
+        try:
+            versions[package] = version(package)
+        except PackageNotFoundError:
+            versions[package] = 'not_installed'
+    return {'python': sys.version.split()[0], 'versions': versions, 'node_available': bool(shutil.which('node')), 'ffmpeg_available': bool(shutil.which('ffmpeg')), 'youtube_engine': os.getenv('FBR_YOUTUBE_ENGINE', 'auto'), 'diagnostic_version': 1}
+
 @app.post('/api/jobs/upload', status_code=202)
 async def upload_job(request: Request, language: str = 'auto'):
     from urllib.parse import unquote

@@ -86,6 +86,16 @@ class SessionTests(unittest.TestCase):
                 os.chdir(previous)
 
 class SessionEndpointTests(unittest.TestCase):
+    def test_extraction_diagnostics_work_without_transcription_key(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {'FBR_DATA_DIR':directory,'FBR_PROVIDER':'groq','FBR_PASSWORD':'private-test-password','FBR_ALLOW_PUBLIC':'0','GROQ_API_KEY':''}), patch('app.main.worker_loop'), TestClient(app) as client:
+            client.auth=('fbr','private-test-password')
+            runtime=client.get('/api/diagnostics/runtime')
+            self.assertEqual(runtime.status_code,200)
+            self.assertEqual(runtime.json()['diagnostic_version'],1)
+            result=client.post('/api/diagnostics/extraction',json={'url':'https://youtu.be/ZTSI3DDP_4A'})
+            self.assertEqual(result.status_code,202)
+            self.assertEqual(result.json()['kind'],'extraction_check')
+
     def test_private_api_import_check_delete_and_no_secret_readback(self):
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {'FBR_DATA_DIR':directory,'FBR_PASSWORD':'private-test-password','FBR_ALLOW_PUBLIC':'0','FBR_SESSION_SECRET':'test-encryption-secret','GROQ_API_KEY':'test-key'}), patch('app.main.worker_loop'), TestClient(app) as client:
             client.auth=('fbr','private-test-password')
