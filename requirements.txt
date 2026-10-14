@@ -4,3 +4,4 @@ httpx==0.28.1
 yt-dlp[default]==2026.8.19
 python-dotenv==1.2.4
 pycryptodomex==3.24.1
+pytubefix==11.2.0

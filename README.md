@@ -1,5 +1,15 @@
 # FBR-Transcript
 
+## Extração alternativa do YouTube
+
+O YouTube agora possui uma alternativa gratuita com **PyTubeFix 11.2.0**. Por padrão, `FBR_YOUTUBE_ENGINE=auto` tenta yt-dlp e, em falhas compatíveis, tenta PyTubeFix uma única vez. Também é possível selecionar `FBR_YOUTUBE_ENGINE=pytubefix` para uso direto ou `FBR_YOUTUBE_ENGINE=yt-dlp` para desativar a alternativa. As outras plataformas continuam usando yt-dlp. Falhas reconhecidas de conteúdo privado, restrição de idade e limites HTTP 429 não são reenviadas automaticamente para outro motor.
+
+O PyTubeFix desta integração tenta obter o áudio público sem usar as sessões gerenciadas; ele não autentica sua conta nem transforma conteúdo privado em público. Os limites de tamanho e duração continuam valendo. Arquivos obtidos passam pelo mesmo FFprobe/FFmpeg e pelas mesmas APIs de transcrição.
+
+**Validação real:** o vídeo `ZTSI3DDP_4A`, que retornou desafio antiautomação no yt-dlp, foi baixado pelo PyTubeFix e também pelo fluxo integrado `extract_source`: 15.568.268 bytes, aproximadamente 961,91 segundos e fluxo de áudio confirmado pelo FFprobe. A biblioteca Pytube 15.0.0 original retornou HTTP 429 no mesmo teste. Isso comprova este caso no ambiente local, sem garantir todos os vídeos nem o comportamento a partir da VPS.
+
+O botão de teste das sessões continua verificando metadados pelo yt-dlp com os cookies selecionados; ele pode falhar mesmo quando o modo automático obtém áudio público pelo PyTubeFix. Não houve consumo de créditos de transcrição nessa validação: a chave Groq configurada foi recusada com HTTP 401 em consulta de autenticação, e uma transcrição real continua pendente.
+
 ## Contas conectadas e envio de arquivos
 
 A interface inclui sessões separadas por plataforma: importar/substituir cookies Netscape, remover e testar acesso a um link. Os cookies ficam criptografados em `/data/sessions` e não são retornados ao navegador. O gerenciamento exige senha e fica indisponível no modo público. Para login em um Firefox remoto na VPS e sincronização da sessão, veja o [guia do navegador remoto](docs/navegador-remoto.md). Esse serviço adicional ainda precisa ser instalado no Easypanel; a sincronização no aplicativo já está implementada. Isso não é OAuth oficial e não garante eliminar bloqueios das plataformas.

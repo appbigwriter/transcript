@@ -84,7 +84,7 @@ def downloader_arguments(settings, platform=None):
     if settings.cookies_file:
         source = Path(settings.cookies_file)
         if not source.is_file():
-            raise UserError("O arquivo de cookies configurado no servidor não foi encontrado.")
+            raise UserError("O arquivo de cookies configurado no servidor não foi encontrado.", 'session_file_missing')
         # yt-dlp writes updated cookies; work with a disposable copy of the mounted session.
         import shutil
         destination = Path("session.txt")
@@ -166,6 +166,46 @@ def transcribe_chunks(files, duration, settings, language, client):
         raise UserError("Não foi identificada fala no áudio.")
     return {"text": combined, "segments": segments, "language": languages[0] if languages else language, "duration": round(duration, 2), "provider": settings.provider, "model": settings.model}
 
+def extract_ytdlp_source(url, platform, settings, directory):
+    progress("Consultando publicação", 5)
+    arguments = downloader_arguments(settings, platform_id(platform))
+    metadata = json.loads(command(arguments + ["--dump-single-json", "--skip-download", "--", url]))
+    entries = metadata.get("entries")
+    if entries:
+        metadata = next((entry for entry in entries if entry), {})
+    if metadata.get("is_live") or metadata.get("live_status") == "is_live":
+        raise UserError("Transmissões ao vivo não são suportadas. Aguarde o vídeo ser publicado.")
+    length = metadata.get("duration")
+    if length and float(length) > settings.max_duration:
+        raise UserError(f"O vídeo excede o limite de {settings.max_duration // 60} minutos.")
+    progress("Extraindo áudio", 15)
+    command(arguments + ["-f", "bestaudio/best", "--max-filesize", str(settings.max_download), "--match-filters", f"!is_live & duration <=? {settings.max_duration}", "-o", str(directory / "source.%(ext)s"), "--", url], timeout=600)
+    candidates = [file for file in directory.glob("source.*") if file.suffix not in {".part", ".ytdl"} and file.is_file()]
+    if len(candidates) != 1:
+        raise UserError("Não foi encontrado um vídeo único com áudio dentro do limite de tamanho. Publicações com vários vídeos usam somente o primeiro.")
+    if candidates[0].stat().st_size > settings.max_download:
+        raise UserError("O arquivo excede o limite de tamanho configurado.")
+    return candidates[0], metadata
+
+def extract_source(url, platform, settings, directory):
+    engine = os.getenv('FBR_YOUTUBE_ENGINE', 'auto').strip().lower()
+    if engine not in {'auto', 'yt-dlp', 'pytubefix'}:
+        raise UserError('FBR_YOUTUBE_ENGINE deve ser auto, yt-dlp ou pytubefix.', 'invalid_configuration')
+    if platform != 'YouTube' or engine == 'yt-dlp':
+        return extract_ytdlp_source(url, platform, settings, directory)
+    if engine == 'auto':
+        try:
+            return extract_ytdlp_source(url, platform, settings, directory)
+        except UserError as error:
+            if error.code not in {'bot_challenge', 'format_unavailable', 'access_denied', 'extraction_unknown', 'network_error', 'session_file_missing'}:
+                raise
+            progress('Tentando alternativa de extração do YouTube', 18)
+    from .youtube import download_audio, YouTubeDownloadError
+    try:
+        return download_audio(url, directory, settings)
+    except YouTubeDownloadError as error:
+        raise UserError(str(error), 'youtube_alternative_failed') from None
+
 def process(job, settings, directory):
     if job.get('kind') == 'session_check':
         url, platform = publication_url(job['url'])
@@ -185,29 +225,12 @@ def process(job, settings, directory):
             result = transcribe_chunks(chunks, duration, settings, job['language'], client)
         return dict(result, title=job.get('upload_name') or 'Arquivo enviado', platform='Arquivo enviado')
     url, platform = publication_url(job["url"])
-    progress("Consultando publicação", 5)
-    arguments = downloader_arguments(settings, platform_id(platform))
-    metadata = json.loads(command(arguments + ["--dump-single-json", "--skip-download", "--", url]))
-    entries = metadata.get("entries")
-    if entries:
-        metadata = next((entry for entry in entries if entry), {})
-    if metadata.get("is_live") or metadata.get("live_status") == "is_live":
-        raise UserError("Transmissões ao vivo não são suportadas. Aguarde o vídeo ser publicado.")
-    length = metadata.get("duration")
-    if length and float(length) > settings.max_duration:
-        raise UserError(f"O vídeo excede o limite de {settings.max_duration // 60} minutos.")
-    progress("Extraindo áudio", 15)
-    command(arguments + ["-f", "bestaudio/best", "--max-filesize", str(settings.max_download), "--match-filters", f"!is_live & duration <=? {settings.max_duration}", "-o", str(directory / "source.%(ext)s"), "--", url], timeout=600)
-    candidates = [file for file in directory.glob("source.*") if file.suffix not in {".part", ".ytdl"} and file.is_file()]
-    if len(candidates) != 1:
-        raise UserError("Não foi encontrado um vídeo único com áudio dentro do limite de tamanho. Publicações com vários vídeos usam somente o primeiro.")
-    if candidates[0].stat().st_size > settings.max_download:
-        raise UserError("O arquivo excede o limite de tamanho configurado.")
+    source, metadata = extract_source(url, platform, settings, directory)
     progress("Preparando áudio", 30)
-    chunks, duration = prepare_chunks(candidates[0], settings, directory)
+    chunks, duration = prepare_chunks(source, settings, directory)
     with httpx.Client(timeout=httpx.Timeout(240, connect=20), follow_redirects=False) as client:
         result = transcribe_chunks(chunks, duration, settings, job["language"], client)
-    return dict(result, title=str(metadata.get("title") or "Publicação")[:300], platform=platform)
+    return dict(result, title=str(metadata.get("title") or "Publicação")[:300], platform=platform, extractor=metadata.get('extractor', 'yt-dlp'))
 
 def main():
     directory = Path.cwd()
