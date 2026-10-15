@@ -10,6 +10,7 @@ import sqlite3
 import subprocess
 import threading
 import time
+import traceback
 from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import quote, urlsplit
@@ -254,21 +255,27 @@ class Runner:
         artifact = None
         deadline = time.monotonic() + 1200
         try:
-            while process.is_alive() or receiver.poll():
+            while True:
                 if self.stop.is_set():
                     self.pause()
                     raise InterruptedError('Pausado; a extração pode ser retomada.')
                 if time.monotonic() > deadline:
                     self.pause()
                     raise ValueError('A extração excedeu 20 minutos e foi interrompida.')
-                if receiver.poll(.2):
+                try:
+                    available = receiver.poll(.2)
+                except (EOFError, OSError):
+                    break
+                if available:
                     try:
                         kind, value = receiver.recv()
-                    except EOFError:
+                    except (EOFError, OSError):
                         break
                     if kind == 'stage': self.queue.update(task['id'], stage=value)
                     elif kind == 'artifact': artifact = value
                     else: raise ValueError(value)
+                elif not process.is_alive():
+                    break
             if artifact is None:
                 raise ValueError('A extração foi interrompida sem resultado.')
             return artifact
@@ -333,6 +340,9 @@ class Runner:
                     self.queue.update(task['id'], status=status, stage='Conexão interrompida. Retome para consultar antes de reenviar.')
                     break
                 except Exception as error:
+                    if not isinstance(error, ValueError):
+                        diagnostic = dict(error_type=type(error).__name__, frames=[dict(file=Path(f.filename).name, line=f.lineno, function=f.name) for f in traceback.extract_tb(error.__traceback__)])
+                        (directory / 'diagnostico.json').write_text(json.dumps(diagnostic), encoding='utf-8')
                     self.queue.update(task['id'], status='failed', stage=str(error) if isinstance(error, ValueError) else 'Falha local inesperada.')
         except Exception as error:
             for task in self.queue.all():

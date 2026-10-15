@@ -13,10 +13,24 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.store import JobStore
 from desktop.extract import choose_caption, normalize_cues, parse_caption, extract
-from desktop.runtime import Queue, protect_password, server_url
+from desktop.runtime import Queue, Runner, protect_password, server_url
+
+
+def caption_process_fixture(url, language, config, directory, pipe):
+    pipe.send(('artifact', {'kind': 'transcript', 'text': 'texto ' * 20000}))
+    pipe.close()
 
 
 class CaptionTests(unittest.TestCase):
+    def test_collector_receives_result_when_child_closes_pipe(self):
+        with tempfile.TemporaryDirectory() as root:
+            queue = Queue(root)
+            queue.add(['https://youtu.be/ZTSI3DDP_4A'])
+            runner = Runner(queue)
+            with patch('desktop.runtime.extract_child', caption_process_fixture):
+                result = runner.collect(queue.all()[0], {'language': 'pt'}, Path(root))
+            self.assertEqual(result['text'], 'texto ' * 20000)
+
     def test_growing_auto_captions_and_later_spoken_repetitions(self):
         cues = [dict(start=0, end=2, text='Olá'), dict(start=.5, end=2.5, text='Olá mundo'),
                 dict(start=1, end=3, text='Olá mundo agora'), dict(start=10, end=12, text='Olá mundo agora')]

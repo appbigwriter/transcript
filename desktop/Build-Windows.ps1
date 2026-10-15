@@ -3,7 +3,7 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $projectRoot
 $localPython = Join-Path $projectRoot '.venv-local/Scripts/python.exe'
 if (!(Test-Path -LiteralPath $localPython)) { throw 'Execute desktop/Install-Local.ps1 antes de empacotar.' }
-& $localPython -m pip install pyinstaller
+& $localPython -m pip install pyinstaller==6.22.3
 if ($LASTEXITCODE -ne 0) { throw 'Nao foi possivel instalar o empacotador.' }
 $bundleArguments = @()
 foreach ($toolName in @('ffmpeg','ffprobe','node')) {
