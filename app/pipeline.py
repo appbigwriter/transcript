@@ -207,6 +207,12 @@ def extract_source(url, platform, settings, directory):
         raise UserError(str(error), error.code) from None
 
 def process(job, settings, directory):
+    if job.get('kind') == 'creation':
+        from .creation import process_creation, CreationError
+        try:
+            return process_creation(job, settings, progress)
+        except (CreationError, ValueError) as error:
+            raise UserError(str(error), 'creation_error') from None
     if job.get('kind') == 'extraction_check':
         url, platform = publication_url(job['url'])
         source, metadata = extract_source(url, platform, settings, directory)

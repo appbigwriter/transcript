@@ -100,3 +100,8 @@ class JobStore:
         with self.connect() as connection:
             rows = connection.execute("SELECT payload FROM jobs WHERE status='queued'").fetchall()
         return {data['upload_id'] for row in rows if (data := json.loads(row[0])).get('kind') == 'upload'}
+
+    def recent(self, limit=200):
+        with self.connect() as connection:
+            rows = connection.execute('SELECT payload FROM jobs ORDER BY created DESC LIMIT ?', (limit,)).fetchall()
+        return [json.loads(row[0]) for row in rows]

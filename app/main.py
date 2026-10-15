@@ -92,7 +92,7 @@ def worker_loop(store, settings, stop):
             if result.get("error"):
                 store.update(job["id"], status="failed", stage="Não concluído", error=result["error"], error_code=result.get('error_code', 'processing_error'))
             else:
-                store.update(job["id"], status="done", stage="Transcrição pronta", progress=100, result=result["result"])
+                store.update(job["id"], status="done", stage="Criação pronta" if job.get('kind') == 'creation' else "Transcrição pronta", progress=100, result=result["result"])
 
 @asynccontextmanager
 async def lifespan(app):
@@ -157,7 +157,7 @@ async def protection(request: Request, call_next):
             if urlsplit(origin).netloc != request.headers.get("host"):
                 return JSONResponse({"detail": "Origem não permitida."}, status_code=403)
         try:
-            limit = settings.max_download if request.url.path in {'/api/jobs/upload', '/api/local/audio'} else 2000000 if request.url.path == '/api/local/transcripts' else 1100000 if request.url.path.startswith('/api/sessions/') else 8192
+            limit = settings.max_download if request.url.path in {'/api/jobs/upload', '/api/local/audio'} else 2000000 if request.url.path in {'/api/local/transcripts', '/api/library/import', '/api/creations'} else 1100000 if request.url.path.startswith('/api/sessions/') else 8192
             if int(request.headers.get("content-length", "0")) > limit:
                 return JSONResponse({"detail": "Requisição muito grande."}, status_code=413)
         except ValueError:
@@ -182,7 +182,14 @@ def configuration(request: Request):
     parsed = urlsplit(browser_url)
     if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password:
         browser_url = ''
-    return {"provider": settings.provider, "model": settings.model, "ready": bool(settings.key), "timestamps": settings.timestamps, "max_minutes": settings.max_duration // 60, "retention_hours": settings.retention // 3600, 'max_upload_mb': settings.max_download // (1024 * 1024), 'session_management': not settings.allow_public, 'browser_sync': bool(os.getenv('FBR_BROWSER_PROFILE')) and not settings.allow_public, 'browser_url': browser_url}
+    from .creation import TextSettings
+    try:
+        creation = TextSettings.load(settings).public()
+    except ValueError:
+        creation = dict(ready=False, error='Confira a configuração do modelo de texto no servidor.')
+    if settings.allow_public:
+        creation['ready'] = False
+    return {"provider": settings.provider, "model": settings.model, "ready": bool(settings.key), "timestamps": settings.timestamps, "max_minutes": settings.max_duration // 60, "retention_hours": settings.retention // 3600, 'max_upload_mb': settings.max_download // (1024 * 1024), 'session_management': not settings.allow_public, 'browser_sync': bool(os.getenv('FBR_BROWSER_PROFILE')) and not settings.allow_public, 'browser_url': browser_url, 'creation': creation}
 
 def private_sessions(request):
     if request.app.state.settings.allow_public:
@@ -237,9 +244,12 @@ def create_job(body: TranscriptionRequest, request: Request):
         raise HTTPException(400, str(error)) from None
     return enqueue(request, {"url": url, "platform": platform, "language": body.language})
 
-def enqueue(request, data):
+def enqueue(request, data, request_id=None, fingerprint=None):
     settings, store = request.app.state.settings, request.app.state.store
     with request.app.state.submission_lock:
+        if request_id and store.local_submission(request_id)[0]:
+            from .local_api import create
+            return create(request, data, request_id, fingerprint)[0]
         now = time.monotonic()
         submissions = request.app.state.submissions
         # Global hourly cap across the shared access account. One process/replica by design.
@@ -248,7 +258,11 @@ def enqueue(request, data):
         if len(submissions) >= 30:
             raise HTTPException(429, "Limite de 30 novas tarefas por hora atingido. Aguarde para continuar.")
         try:
-            result = store.create(data, settings.max_queue)
+            if request_id:
+                from .local_api import create
+                result = create(request, data, request_id, fingerprint)[0]
+            else:
+                result = store.create(data, settings.max_queue)
         except ValueError as error:
             raise HTTPException(429, str(error)) from None
         submissions.append(now)
@@ -363,3 +377,5 @@ app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 from .local_api import install_local_routes
 install_local_routes(app)
+from .creation_api import install_creation_routes
+install_creation_routes(app, enqueue, job_or_404)
