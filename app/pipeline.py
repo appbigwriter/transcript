@@ -227,7 +227,8 @@ def process(job, settings, directory):
         chunks, duration = prepare_chunks(source, settings, directory)
         with httpx.Client(timeout=httpx.Timeout(240, connect=20), follow_redirects=False) as client:
             result = transcribe_chunks(chunks, duration, settings, job['language'], client)
-        return dict(result, title=job.get('upload_name') or 'Arquivo enviado', platform='Arquivo enviado')
+        return dict(result, title=job.get('upload_name') or 'Arquivo enviado', platform=job.get('source_platform', 'Arquivo enviado'),
+                    source_url=job.get('source_url'), source_type='speech_to_text', extractor=job.get('extractor', 'upload'))
     url, platform = publication_url(job["url"])
     source, metadata = extract_source(url, platform, settings, directory)
     progress("Preparando áudio", 30)

@@ -10,3 +10,5 @@ tests
 **/session.txt
 **/*.enc
 transcript-dev-doc.md
+desktop/
+.venv-local/

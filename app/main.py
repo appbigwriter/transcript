@@ -157,7 +157,7 @@ async def protection(request: Request, call_next):
             if urlsplit(origin).netloc != request.headers.get("host"):
                 return JSONResponse({"detail": "Origem não permitida."}, status_code=403)
         try:
-            limit = settings.max_download if request.url.path == '/api/jobs/upload' else 1100000 if request.url.path.startswith('/api/sessions/') else 8192
+            limit = settings.max_download if request.url.path in {'/api/jobs/upload', '/api/local/audio'} else 2000000 if request.url.path == '/api/local/transcripts' else 1100000 if request.url.path.startswith('/api/sessions/') else 8192
             if int(request.headers.get("content-length", "0")) > limit:
                 return JSONResponse({"detail": "Requisição muito grande."}, status_code=413)
         except ValueError:
@@ -347,6 +347,8 @@ def download(identifier: str, extension: str, request: Request):
     result = job["result"]
     if extension == "txt":
         content, mime = result["text"], "text/plain"
+    elif extension == 'json':
+        content, mime = json.dumps(result, ensure_ascii=False), 'application/json'
     elif extension in {"srt", "vtt"} and result.get("segments"):
         content, mime = subtitles(result["segments"], extension == "vtt"), "text/vtt" if extension == "vtt" else "application/x-subrip"
     else:
@@ -358,3 +360,6 @@ def index():
     return FileResponse(STATIC / "index.html")
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+from .local_api import install_local_routes
+install_local_routes(app)

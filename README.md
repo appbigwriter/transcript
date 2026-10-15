@@ -1,5 +1,13 @@
 # FBR-Transcript
 
+## V1 — auxiliar local para Windows
+
+O [FBR-Transcript Local](desktop/README.md) coleta publicações na rede do usuário, prioriza legendas e envia somente texto ou áudio ao sistema principal. Inclui interface Windows, fila individual/em lote, retomada e exportação TXT/SRT/JSON. Cookies não são enviados ao servidor. A configuração opcional de senha usa DPAPI do Windows.
+
+Esta versão do servidor adiciona `/api/local/capabilities`, `/api/local/transcripts`, `/api/local/audio` e `/api/local/submissions/{id}`. Os envios possuem identificador persistente para impedir duplicação de tarefas após interrupções de conexão. A importação de legendas não exige chave de reconhecimento de fala; o envio de áudio exige o provedor configurado no servidor. Faça deploy do servidor antes de conectar o auxiliar.
+
+Mantenha o volume `/data`: ele guarda também as reservas de identificadores dos envios locais. O executável portátil é gerado por `desktop/Build-Windows.ps1` e fica fora do Git.
+
 ## Extração alternativa do YouTube
 
 O YouTube agora possui uma alternativa gratuita com **PyTubeFix 11.2.0**. Por padrão, `FBR_YOUTUBE_ENGINE=auto` tenta yt-dlp e, em falhas compatíveis, tenta PyTubeFix uma única vez. Também é possível selecionar `FBR_YOUTUBE_ENGINE=pytubefix` para uso direto ou `FBR_YOUTUBE_ENGINE=yt-dlp` para desativar a alternativa. As outras plataformas continuam usando yt-dlp. Falhas reconhecidas de conteúdo privado, restrição de idade e limites HTTP 429 não são reenviadas automaticamente para outro motor.
